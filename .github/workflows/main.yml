@@ -47,7 +47,24 @@ jobs:
           strip = true
           EOF
 
-      - name: Create tauri.conf.json (without sounds)
+      - name: Install ImageMagick
+        run: sudo apt-get update && sudo apt-get install -y imagemagick
+
+      - name: Generate required Tauri icons from app-icon.png
+        run: |
+          mkdir -p src-tauri/icons
+          if [ ! -f "app-icon.png" ]; then
+            echo "Creating a dummy app-icon.png"
+            convert -size 512x512 xc:blue app-icon.png
+          fi
+          # Generate the sizes required by tauri.conf.json
+          convert app-icon.png -resize 32x32 src-tauri/icons/32x32.png
+          convert app-icon.png -resize 128x128 src-tauri/icons/128x128.png
+          convert app-icon.png -resize 256x256 src-tauri/icons/128x128@2x.png
+          # For .icns and .ico we won't use them; we'll remove them from config
+          echo "Tauri desktop icons generated"
+
+      - name: Create tauri.conf.json (without sounds, only PNG icons)
         run: |
           cat > src-tauri/tauri.conf.json << 'EOF'
           {
@@ -81,9 +98,7 @@ jobs:
               "icon": [
                 "icons/32x32.png",
                 "icons/128x128.png",
-                "icons/128x128@2x.png",
-                "icons/icon.icns",
-                "icons/icon.ico"
+                "icons/128x128@2x.png"
               ]
             },
             "plugins": {
@@ -114,13 +129,10 @@ jobs:
           xmlstarlet ed --inplace --delete "//activity/@android:screenOrientation" "$MANIFEST" 2>/dev/null || true
           xmlstarlet ed --inplace --insert "//activity" --type attr --name "android:screenOrientation" --value "landscape" "$MANIFEST"
 
-      - name: Install ImageMagick for icon generation
-        run: sudo apt-get update && sudo apt-get install -y imagemagick
-
-      - name: Generate Android icons from app-icon.png
+      - name: Generate Android app icons from app-icon.png
         run: |
           if [ ! -f "app-icon.png" ]; then
-            echo "ERROR: app-icon.png not found in project root"
+            echo "ERROR: app-icon.png not found"
             exit 1
           fi
           for size in 48 72 96 144 192; do
@@ -146,7 +158,7 @@ jobs:
             esac
             convert app-icon.png -resize ${size}x${size} "src-tauri/gen/android/app/src/main/res/mipmap-$density/ic_launcher_foreground.png"
           done
-          echo "Icons generated successfully"
+          echo "Android icons generated"
 
       - name: Build release APK (arm64 only)
         run: PROFILE=release cargo tauri android build --apk -- --target aarch64-linux-android
@@ -167,7 +179,7 @@ jobs:
             keytool -genkey -v -keystore ~/.android/debug.keystore -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US" -storepass android -keypass android
           fi
           "$APKSIGNER" sign --ks ~/.android/debug.keystore --ks-pass pass:android --key-pass pass:android "$APK_PATH"
-          echo "APK signed successfully"
+          echo "APK signed"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
