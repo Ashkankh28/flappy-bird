@@ -52,9 +52,9 @@ jobs:
           cat > src-tauri/tauri.conf.json << 'EOF'
           {
             "$schema": "https://schema.tauri.app/config/2",
-            "productName": "pirate-raid",
+            "productName": "flappy-bird",
             "version": "0.1.0",
-            "identifier": "com.ashkan.pirate-raid",
+            "identifier": "com.ashkan.flappy-bird",
             "build": {
               "frontendDist": "../src"
             },
@@ -62,7 +62,7 @@ jobs:
               "withGlobalTauri": true,
               "windows": [
                 {
-                  "title": "Pirate Raid",
+                  "title": "Flappy Bird",
                   "width": 800,
                   "height": 600
                 }
@@ -173,5 +173,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Pirate-Raid-arm64
+          name: Flappy-Bird-arm64
           path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
