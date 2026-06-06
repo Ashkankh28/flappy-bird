@@ -1,0 +1,177 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli
+
+      - name: Optimize release profile for small size
+        run: |
+          mkdir -p .cargo
+          cat > .cargo/config.toml << 'EOF'
+          [profile.release]
+          opt-level = "z"
+          lto = true
+          codegen-units = 1
+          strip = true
+          EOF
+
+      - name: Create tauri.conf.json
+        run: |
+          cat > src-tauri/tauri.conf.json << 'EOF'
+          {
+            "$schema": "https://schema.tauri.app/config/2",
+            "productName": "pirate-raid",
+            "version": "0.1.0",
+            "identifier": "com.ashkan.pirate-raid",
+            "build": {
+              "frontendDist": "../src"
+            },
+            "app": {
+              "withGlobalTauri": true,
+              "windows": [
+                {
+                  "title": "Pirate Raid",
+                  "width": 800,
+                  "height": 600
+                }
+              ],
+              "security": {
+                "csp": "default-src 'self'; media-src 'self' asset: https://asset.localhost data: blob:;",
+                "assetProtocol": {
+                  "enable": true,
+                  "scope": ["**"]
+                }
+              }
+            },
+            "bundle": {
+              "active": true,
+              "targets": "all",
+              "icon": [
+                "icons/32x32.png",
+                "icons/128x128.png",
+                "icons/128x128@2x.png",
+                "icons/icon.icns",
+                "icons/icon.ico"
+              ],
+              "resources": ["../src/sounds"]
+            },
+            "plugins": {
+              "android": {
+                "orientation": "landscape"
+              }
+            }
+          }
+          EOF
+
+      - name: Remove old Android project (if any)
+        run: rm -rf src-tauri/gen/android
+
+      - name: Initialize Android project
+        run: cargo tauri android init
+
+      - name: Fix SDK versions (compileSdk=35, targetSdk=34, minSdk=24)
+        run: |
+          cd src-tauri/gen/android
+          sed -i 's/compileSdk = [0-9]*/compileSdk = 35/' app/build.gradle.kts
+          sed -i 's/targetSdk = [0-9]*/targetSdk = 34/' app/build.gradle.kts
+          sed -i 's/minSdk = [0-9]*/minSdk = 24/' app/build.gradle.kts
+
+      - name: Force landscape orientation in AndroidManifest.xml
+        run: |
+          sudo apt-get install -y xmlstarlet
+          MANIFEST="src-tauri/gen/android/app/src/main/AndroidManifest.xml"
+          xmlstarlet ed --inplace --delete "//activity/@android:screenOrientation" "$MANIFEST" 2>/dev/null || true
+          xmlstarlet ed --inplace --insert "//activity" --type attr --name "android:screenOrientation" --value "landscape" "$MANIFEST"
+
+      - name: Install ImageMagick for icon generation
+        run: sudo apt-get update && sudo apt-get install -y imagemagick
+
+      - name: Generate Android icons from app-icon.png
+        run: |
+          if [ ! -f "app-icon.png" ]; then
+            echo "ERROR: app-icon.png not found in project root"
+            exit 1
+          fi
+          for size in 48 72 96 144 192; do
+            case $size in
+              48) density="mdpi" ;;
+              72) density="hdpi" ;;
+              96) density="xhdpi" ;;
+              144) density="xxhdpi" ;;
+              192) density="xxxhdpi" ;;
+            esac
+            mkdir -p "src-tauri/gen/android/app/src/main/res/mipmap-$density"
+            convert app-icon.png -resize ${size}x${size} "src-tauri/gen/android/app/src/main/res/mipmap-$density/ic_launcher.png"
+            cp "src-tauri/gen/android/app/src/main/res/mipmap-$density/ic_launcher.png" \
+               "src-tauri/gen/android/app/src/main/res/mipmap-$density/ic_launcher_round.png"
+          done
+          for size in 108 162 216 324 432; do
+            case $size in
+              108) density="mdpi" ;;
+              162) density="hdpi" ;;
+              216) density="xhdpi" ;;
+              324) density="xxhdpi" ;;
+              432) density="xxxhdpi" ;;
+            esac
+            convert app-icon.png -resize ${size}x${size} "src-tauri/gen/android/app/src/main/res/mipmap-$density/ic_launcher_foreground.png"
+          done
+          echo "Icons generated successfully"
+
+      - name: Build release APK (arm64 only)
+        run: PROFILE=release cargo tauri android build --apk -- --target aarch64-linux-android
+
+      - name: Sign APK with debug keystore (required for installation on modern Android)
+        run: |
+          APK_PATH=$(find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "No APK found"
+            exit 1
+          fi
+          APKSIGNER=$(find $ANDROID_HOME/build-tools -name "apksigner" | head -n 1)
+          if [ -z "$APKSIGNER" ]; then
+            echo "apksigner not found"
+            exit 1
+          fi
+          if [ ! -f ~/.android/debug.keystore ]; then
+            keytool -genkey -v -keystore ~/.android/debug.keystore -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US" -storepass android -keypass android
+          fi
+          "$APKSIGNER" sign --ks ~/.android/debug.keystore --ks-pass pass:android --key-pass pass:android "$APK_PATH"
+          echo "APK signed successfully"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pirate-Raid-arm64
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
