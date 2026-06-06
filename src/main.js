@@ -437,11 +437,18 @@ const {invoke, convertFileSrc} = window.__TAURI__.core;
         score++;
     }
 
-    function jump() {
+    function desktopJump() {
 
         if (isGameOver) return;
 
         bird.y -= canvas.height * 0.08;
+    }
+
+    function androidJump() {
+
+        if (isGameOver) return;
+
+        bird.y -= canvas.height * 0.16;
     }
 
     function restart() {
@@ -481,7 +488,7 @@ const {invoke, convertFileSrc} = window.__TAURI__.core;
                     e.key === "ArrowUp"
                 ) {
                     e.preventDefault();
-                    jump();
+                    desktopJump();
                 }
 
                 if (
@@ -502,7 +509,7 @@ const {invoke, convertFileSrc} = window.__TAURI__.core;
                 if (isGameOver) {
                     restart();
                 } else {
-                    jump();
+                    androidJump();
                 }
             },
             { passive: false }
