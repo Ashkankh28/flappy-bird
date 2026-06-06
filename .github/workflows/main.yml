@@ -47,7 +47,7 @@ jobs:
           strip = true
           EOF
 
-      - name: Create tauri.conf.json
+      - name: Create tauri.conf.json (without sounds)
         run: |
           cat > src-tauri/tauri.conf.json << 'EOF'
           {
@@ -84,8 +84,7 @@ jobs:
                 "icons/128x128@2x.png",
                 "icons/icon.icns",
                 "icons/icon.ico"
-              ],
-              "resources": ["../src/sounds"]
+              ]
             },
             "plugins": {
               "android": {
@@ -152,7 +151,7 @@ jobs:
       - name: Build release APK (arm64 only)
         run: PROFILE=release cargo tauri android build --apk -- --target aarch64-linux-android
 
-      - name: Sign APK with debug keystore (required for installation on modern Android)
+      - name: Sign APK with debug keystore
         run: |
           APK_PATH=$(find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" | head -n 1)
           if [ -z "$APK_PATH" ]; then
