@@ -14,6 +14,8 @@ Flappy Bird - Tauri Edition is a responsive desktop game inspired by the classic
 
 The application automatically adapts to different screen sizes and supports both desktop and touch devices.
 
+---
+
 ## 🖼 Screenshots
 
 | Desktop Version | Mobile Version |
@@ -24,7 +26,7 @@ The application automatically adapts to different screen sizes and supports both
 
 ## 📁 Project Structure
 
-Flappy-Bird-Tauri/
+```Flappy-Bird-Tauri/
 ├── src/
 │   ├── index.html
 │   ├── main.js
@@ -38,6 +40,8 @@ Flappy-Bird-Tauri/
 ├── app-icon.png
 ├── package.json
 └── README.md
+
+```
 
 ---
 
@@ -160,6 +164,35 @@ This project is released for educational and personal use.
 Flappy Bird - Tauri Edition یک پیاده‌سازی مدرن و ریسپانسیو از بازی معروف Flappy Bird است که با استفاده از HTML5 Canvas، JavaScript و Tauri ساخته شده است.
 
 این پروژه با استفاده از فناوری‌های وب توسعه داده شده و توسط Tauri به یک برنامه دسکتاپ سبک، سریع و چندسکویی تبدیل شده است.
+
+---
+
+## 🖼 اسکرین شات ها
+
+| ورژن دسکتاپ | ورژن موبایل |
+|----------------|----------------|
+| ![Desktop Screenshot](./screenshots/desktop.png) | ![Mobile Screenshot](./screenshots/mobile.png) |
+
+---
+
+## 📁 ساختار پروژه
+
+```Flappy-Bird-Tauri/
+├── src/
+│   ├── index.html
+│   ├── main.js
+│   └── style.css
+├── src-tauri/
+│   ├── src/
+│   │   └── main.rs
+│   ├── Cargo.toml
+│   ├── tauri.conf.json
+│   └── capabilities/
+├── app-icon.png
+├── package.json
+└── README.md
+
+```
 
 ---
 
