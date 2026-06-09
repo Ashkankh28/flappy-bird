@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Android APK (Auto-Generated Keystore)
 
 on:
   push:
@@ -47,22 +47,18 @@ jobs:
           strip = true
           EOF
 
-      - name: Install ImageMagick
-        run: sudo apt-get update && sudo apt-get install -y imagemagick
+      - name: Install ImageMagick & xmlstarlet
+        run: sudo apt-get update && sudo apt-get install -y imagemagick xmlstarlet
 
       - name: Generate required Tauri icons from app-icon.png
         run: |
           mkdir -p src-tauri/icons
           if [ ! -f "app-icon.png" ]; then
-            echo "Creating a dummy app-icon.png"
             convert -size 512x512 xc:blue app-icon.png
           fi
-          # Generate the sizes required by tauri.conf.json
           convert app-icon.png -resize 32x32 src-tauri/icons/32x32.png
           convert app-icon.png -resize 128x128 src-tauri/icons/128x128.png
           convert app-icon.png -resize 256x256 src-tauri/icons/128x128@2x.png
-          # For .icns and .ico we won't use them; we'll remove them from config
-          echo "Tauri desktop icons generated"
 
       - name: Create tauri.conf.json (without sounds, only PNG icons)
         run: |
@@ -109,32 +105,27 @@ jobs:
           }
           EOF
 
-      - name: Remove old Android project (if any)
+      - name: Remove old Android project
         run: rm -rf src-tauri/gen/android
 
       - name: Initialize Android project
         run: cargo tauri android init
 
-      - name: Fix SDK versions (compileSdk=35, targetSdk=34, minSdk=24)
+      - name: Fix SDK versions
         run: |
           cd src-tauri/gen/android
           sed -i 's/compileSdk = [0-9]*/compileSdk = 35/' app/build.gradle.kts
           sed -i 's/targetSdk = [0-9]*/targetSdk = 34/' app/build.gradle.kts
           sed -i 's/minSdk = [0-9]*/minSdk = 24/' app/build.gradle.kts
 
-      - name: Force landscape orientation in AndroidManifest.xml
+      - name: Force landscape orientation
         run: |
-          sudo apt-get install -y xmlstarlet
           MANIFEST="src-tauri/gen/android/app/src/main/AndroidManifest.xml"
           xmlstarlet ed --inplace --delete "//activity/@android:screenOrientation" "$MANIFEST" 2>/dev/null || true
           xmlstarlet ed --inplace --insert "//activity" --type attr --name "android:screenOrientation" --value "landscape" "$MANIFEST"
 
-      - name: Generate Android app icons from app-icon.png
+      - name: Generate Android app icons
         run: |
-          if [ ! -f "app-icon.png" ]; then
-            echo "ERROR: app-icon.png not found"
-            exit 1
-          fi
           for size in 48 72 96 144 192; do
             case $size in
               48) density="mdpi" ;;
@@ -158,31 +149,51 @@ jobs:
             esac
             convert app-icon.png -resize ${size}x${size} "src-tauri/gen/android/app/src/main/res/mipmap-$density/ic_launcher_foreground.png"
           done
-          echo "Android icons generated"
 
-      - name: Build release APK (arm64 only)
-        run: PROFILE=release cargo tauri android build --apk -- --target aarch64-linux-android
-
-      - name: Sign APK with debug keystore
+      # 🔧 ساخت کلید امضای Release به صورت خودکار
+      - name: Generate release keystore
         run: |
-          APK_PATH=$(find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" | head -n 1)
-          if [ -z "$APK_PATH" ]; then
-            echo "No APK found"
-            exit 1
-          fi
-          APKSIGNER=$(find $ANDROID_HOME/build-tools -name "apksigner" | head -n 1)
-          if [ -z "$APKSIGNER" ]; then
-            echo "apksigner not found"
-            exit 1
-          fi
-          if [ ! -f ~/.android/debug.keystore ]; then
-            keytool -genkey -v -keystore ~/.android/debug.keystore -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US" -storepass android -keypass android
-          fi
-          "$APKSIGNER" sign --ks ~/.android/debug.keystore --ks-pass pass:android --key-pass pass:android "$APK_PATH"
-          echo "APK signed"
+          mkdir -p android_keystore
+          keytool -genkey -v -keystore android_keystore/my-release-key.keystore \
+            -alias mykey \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass 123456 -keypass 123456 \
+            -dname "CN=Auto, OU=Auto, O=Auto, L=Auto, ST=Auto, C=AU"
+
+      - name: Setup signing config in build.gradle.kts
+        run: |
+          cd src-tauri/gen/android
+          cat >> app/build.gradle.kts << 'EOF'
+          import java.io.File
+
+          android {
+              signingConfigs {
+                  create("release") {
+                      storeFile = File("../../../../android_keystore/my-release-key.keystore")
+                      storePassword = "123456"
+                      keyAlias = "mykey"
+                      keyPassword = "123456"
+                  }
+              }
+              buildTypes {
+                  release {
+                      signingConfig = signingConfigs.getByName("release")
+                  }
+              }
+          }
+          EOF
+
+      - name: Build release APK (signed)
+        run: PROFILE=release cargo tauri android build --apk -- --target aarch64-linux-android
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Flappy-Bird-arm64
+          name: Flappy-Bird-Signed
           path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+
+      - name: Upload generated keystore (for future updates)
+        uses: actions/upload-artifact@v4
+        with:
+          name: my-release-key-keystore
+          path: android_keystore/my-release-key.keystore
