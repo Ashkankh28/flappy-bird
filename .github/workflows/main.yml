@@ -1,4 +1,4 @@
-name: Build Debug APK (Test)
+name: Build Signed Release APK
 
 on:
   workflow_dispatch:
@@ -20,7 +20,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android
+          targets: aarch64-linux-android,armv7-linux-androideabi
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -76,11 +76,33 @@ jobs:
           sed -i 's/targetSdk = [0-9]*/targetSdk = 34/' app/build.gradle.kts
           sed -i 's/minSdk = [0-9]*/minSdk = 24/' app/build.gradle.kts
 
-      - name: Build debug APK
-        run: cargo tauri android build
+      - name: Generate keystore (once)
+        run: |
+          mkdir -p android_keystore
+          keytool -genkey -v -keystore android_keystore/release.keystore \
+            -alias release \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass 123456 -keypass 123456 \
+            -dname "CN=Flappy, OU=Flappy, O=Flappy, L=City, S=State, C=US"
 
-      - name: Upload debug APK
+      - name: Build arm64 release APK (signed via env)
+        run: |
+          export TAURI_SIGNING_KEYSTORE_PATH=$(pwd)/android_keystore/release.keystore
+          export TAURI_SIGNING_KEYSTORE_PASSWORD=123456
+          export TAURI_SIGNING_KEY_ALIAS=release
+          export TAURI_SIGNING_KEY_PASSWORD=123456
+          PROFILE=release cargo tauri android build --apk -- --target aarch64-linux-android
+
+      - name: Build armv7 release APK (signed via env)
+        run: |
+          export TAURI_SIGNING_KEYSTORE_PATH=$(pwd)/android_keystore/release.keystore
+          export TAURI_SIGNING_KEYSTORE_PASSWORD=123456
+          export TAURI_SIGNING_KEY_ALIAS=release
+          export TAURI_SIGNING_KEY_PASSWORD=123456
+          PROFILE=release cargo tauri android build --apk -- --target armv7-linux-androideabi
+
+      - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:
-          name: debug-apk
-          path: src-tauri/gen/android/app/build/outputs/apk/debug/*.apk
+          name: signed-apks
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
