@@ -1,4 +1,4 @@
-name: Build Android APK (Auto-Generated Keystore)
+name: Build Android APK (Multi-Arch)
 
 on:
   push:
@@ -22,7 +22,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android
+          targets: aarch64-linux-android,armv7-linux-androideabi
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -60,7 +60,7 @@ jobs:
           convert app-icon.png -resize 128x128 src-tauri/icons/128x128.png
           convert app-icon.png -resize 256x256 src-tauri/icons/128x128@2x.png
 
-      - name: Create tauri.conf.json (without sounds, only PNG icons)
+      - name: Create tauri.conf.json
         run: |
           cat > src-tauri/tauri.conf.json << 'EOF'
           {
@@ -111,12 +111,12 @@ jobs:
       - name: Initialize Android project
         run: cargo tauri android init
 
-      - name: Fix SDK versions
+      - name: Fix SDK versions (minSdk 21 for broader compatibility)
         run: |
           cd src-tauri/gen/android
           sed -i 's/compileSdk = [0-9]*/compileSdk = 35/' app/build.gradle.kts
           sed -i 's/targetSdk = [0-9]*/targetSdk = 34/' app/build.gradle.kts
-          sed -i 's/minSdk = [0-9]*/minSdk = 24/' app/build.gradle.kts
+          sed -i 's/minSdk = [0-9]*/minSdk = 21/' app/build.gradle.kts
 
       - name: Force landscape orientation
         run: |
@@ -150,7 +150,6 @@ jobs:
             convert app-icon.png -resize ${size}x${size} "src-tauri/gen/android/app/src/main/res/mipmap-$density/ic_launcher_foreground.png"
           done
 
-      # 🔧 ساخت کلید امضای Release (بدون تغییر در build.gradle.kts)
       - name: Generate release keystore
         run: |
           mkdir -p android_keystore
@@ -161,7 +160,7 @@ jobs:
             -dname "CN=Auto, OU=Auto, O=Auto, L=Auto, ST=Auto, C=AU"
           echo "KEYSTORE_PATH=$(pwd)/android_keystore/my-release-key.keystore" >> $GITHUB_ENV
 
-      - name: Build release APK (signed via environment variables)
+      - name: Build APK for arm64
         run: PROFILE=release cargo tauri android build --apk -- --target aarch64-linux-android
         env:
           TAURI_SIGNING_KEYSTORE_PATH: ${{ env.KEYSTORE_PATH }}
@@ -169,13 +168,30 @@ jobs:
           TAURI_SIGNING_KEY_ALIAS: mykey
           TAURI_SIGNING_KEY_PASSWORD: 123456
 
-      - name: Upload APK
+      - name: Rename arm64 APK
+        run: |
+          find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" -exec mv {} src-tauri/gen/android/app/build/outputs/apk/flappy-bird-arm64.apk \;
+
+      - name: Build APK for armv7
+        run: PROFILE=release cargo tauri android build --apk -- --target armv7-linux-androideabi
+        env:
+          TAURI_SIGNING_KEYSTORE_PATH: ${{ env.KEYSTORE_PATH }}
+          TAURI_SIGNING_KEYSTORE_PASSWORD: 123456
+          TAURI_SIGNING_KEY_ALIAS: mykey
+          TAURI_SIGNING_KEY_PASSWORD: 123456
+
+      - name: Rename armv7 APK
+        run: |
+          find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" ! -name "flappy-bird-arm64.apk" -exec mv {} src-tauri/gen/android/app/build/outputs/apk/flappy-bird-armv7.apk \;
+
+      - name: Upload both APKs
         uses: actions/upload-artifact@v4
         with:
-          name: Flappy-Bird-Signed
-          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          name: Flappy-Bird-APKs
+          path: |
+            src-tauri/gen/android/app/build/outputs/apk/*.apk
 
-      - name: Upload generated keystore (for future updates)
+      - name: Upload keystore
         uses: actions/upload-artifact@v4
         with:
           name: my-release-key-keystore
