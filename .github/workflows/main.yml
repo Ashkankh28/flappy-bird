@@ -1,8 +1,6 @@
-name: Build Android APK (Multi-Arch)
+name: Build Debug APK (Test)
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -22,7 +20,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi
+          targets: aarch64-linux-android
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -36,26 +34,13 @@ jobs:
       - name: Install Tauri CLI
         run: cargo install tauri-cli
 
-      - name: Optimize release profile for small size
-        run: |
-          mkdir -p .cargo
-          cat > .cargo/config.toml << 'EOF'
-          [profile.release]
-          opt-level = "z"
-          lto = true
-          codegen-units = 1
-          strip = true
-          EOF
+      - name: Install ImageMagick
+        run: sudo apt-get update && sudo apt-get install -y imagemagick
 
-      - name: Install ImageMagick & xmlstarlet
-        run: sudo apt-get update && sudo apt-get install -y imagemagick xmlstarlet
-
-      - name: Generate required Tauri icons from app-icon.png
+      - name: Generate icons
         run: |
           mkdir -p src-tauri/icons
-          if [ ! -f "app-icon.png" ]; then
-            convert -size 512x512 xc:blue app-icon.png
-          fi
+          if [ ! -f "app-icon.png" ]; then convert -size 512x512 xc:blue app-icon.png; fi
           convert app-icon.png -resize 32x32 src-tauri/icons/32x32.png
           convert app-icon.png -resize 128x128 src-tauri/icons/128x128.png
           convert app-icon.png -resize 256x256 src-tauri/icons/128x128@2x.png
@@ -68,40 +53,13 @@ jobs:
             "productName": "flappy-bird",
             "version": "0.1.0",
             "identifier": "com.ashkan.flappy-bird",
-            "build": {
-              "frontendDist": "../src"
-            },
+            "build": { "frontendDist": "../src" },
             "app": {
-              "withGlobalTauri": true,
-              "windows": [
-                {
-                  "title": "Flappy Bird",
-                  "width": 800,
-                  "height": 600
-                }
-              ],
-              "security": {
-                "csp": "default-src 'self'; media-src 'self' asset: https://asset.localhost data: blob:;",
-                "assetProtocol": {
-                  "enable": true,
-                  "scope": ["**"]
-                }
-              }
+              "windows": [{ "title": "Flappy Bird", "width": 800, "height": 600 }],
+              "security": { "csp": "default-src 'self'", "assetProtocol": { "enable": true, "scope": ["**"] } }
             },
-            "bundle": {
-              "active": true,
-              "targets": "all",
-              "icon": [
-                "icons/32x32.png",
-                "icons/128x128.png",
-                "icons/128x128@2x.png"
-              ]
-            },
-            "plugins": {
-              "android": {
-                "orientation": "landscape"
-              }
-            }
+            "bundle": { "active": true, "targets": "all", "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png"] },
+            "plugins": { "android": { "orientation": "landscape" } }
           }
           EOF
 
@@ -111,88 +69,18 @@ jobs:
       - name: Initialize Android project
         run: cargo tauri android init
 
-      - name: Fix SDK versions (minSdk=24 required by tauri-plugin-opener)
+      - name: Fix SDK versions (minSdk = 24)
         run: |
           cd src-tauri/gen/android
           sed -i 's/compileSdk = [0-9]*/compileSdk = 35/' app/build.gradle.kts
           sed -i 's/targetSdk = [0-9]*/targetSdk = 34/' app/build.gradle.kts
           sed -i 's/minSdk = [0-9]*/minSdk = 24/' app/build.gradle.kts
 
-      - name: Force landscape orientation
-        run: |
-          MANIFEST="src-tauri/gen/android/app/src/main/AndroidManifest.xml"
-          xmlstarlet ed --inplace --delete "//activity/@android:screenOrientation" "$MANIFEST" 2>/dev/null || true
-          xmlstarlet ed --inplace --insert "//activity" --type attr --name "android:screenOrientation" --value "landscape" "$MANIFEST"
+      - name: Build debug APK
+        run: cargo tauri android build
 
-      - name: Generate Android app icons
-        run: |
-          for size in 48 72 96 144 192; do
-            case $size in
-              48) density="mdpi" ;;
-              72) density="hdpi" ;;
-              96) density="xhdpi" ;;
-              144) density="xxhdpi" ;;
-              192) density="xxxhdpi" ;;
-            esac
-            mkdir -p "src-tauri/gen/android/app/src/main/res/mipmap-$density"
-            convert app-icon.png -resize ${size}x${size} "src-tauri/gen/android/app/src/main/res/mipmap-$density/ic_launcher.png"
-            cp "src-tauri/gen/android/app/src/main/res/mipmap-$density/ic_launcher.png" \
-               "src-tauri/gen/android/app/src/main/res/mipmap-$density/ic_launcher_round.png"
-          done
-          for size in 108 162 216 324 432; do
-            case $size in
-              108) density="mdpi" ;;
-              162) density="hdpi" ;;
-              216) density="xhdpi" ;;
-              324) density="xxhdpi" ;;
-              432) density="xxxhdpi" ;;
-            esac
-            convert app-icon.png -resize ${size}x${size} "src-tauri/gen/android/app/src/main/res/mipmap-$density/ic_launcher_foreground.png"
-          done
-
-      - name: Generate release keystore
-        run: |
-          mkdir -p android_keystore
-          keytool -genkey -v -keystore android_keystore/my-release-key.keystore \
-            -alias mykey \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass 123456 -keypass 123456 \
-            -dname "CN=Auto, OU=Auto, O=Auto, L=Auto, ST=Auto, C=AU"
-          echo "KEYSTORE_PATH=$(pwd)/android_keystore/my-release-key.keystore" >> $GITHUB_ENV
-
-      - name: Build APK for arm64
-        run: PROFILE=release cargo tauri android build --apk -- --target aarch64-linux-android
-        env:
-          TAURI_SIGNING_KEYSTORE_PATH: ${{ env.KEYSTORE_PATH }}
-          TAURI_SIGNING_KEYSTORE_PASSWORD: 123456
-          TAURI_SIGNING_KEY_ALIAS: mykey
-          TAURI_SIGNING_KEY_PASSWORD: 123456
-
-      - name: Rename arm64 APK
-        run: |
-          find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" -exec mv {} src-tauri/gen/android/app/build/outputs/apk/flappy-bird-arm64.apk \;
-
-      - name: Build APK for armv7
-        run: PROFILE=release cargo tauri android build --apk -- --target armv7-linux-androideabi
-        env:
-          TAURI_SIGNING_KEYSTORE_PATH: ${{ env.KEYSTORE_PATH }}
-          TAURI_SIGNING_KEYSTORE_PASSWORD: 123456
-          TAURI_SIGNING_KEY_ALIAS: mykey
-          TAURI_SIGNING_KEY_PASSWORD: 123456
-
-      - name: Rename armv7 APK
-        run: |
-          find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" ! -name "flappy-bird-arm64.apk" -exec mv {} src-tauri/gen/android/app/build/outputs/apk/flappy-bird-armv7.apk \;
-
-      - name: Upload both APKs
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Flappy-Bird-APKs
-          path: |
-            src-tauri/gen/android/app/build/outputs/apk/*.apk
-
-      - name: Upload keystore
-        uses: actions/upload-artifact@v4
-        with:
-          name: my-release-key-keystore
-          path: android_keystore/my-release-key.keystore
+          name: debug-apk
+          path: src-tauri/gen/android/app/build/outputs/apk/debug/*.apk
