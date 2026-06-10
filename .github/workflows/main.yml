@@ -111,12 +111,12 @@ jobs:
       - name: Initialize Android project
         run: cargo tauri android init
 
-      - name: Fix SDK versions (minSdk 21 for broader compatibility)
+      - name: Fix SDK versions (minSdk=24 required by tauri-plugin-opener)
         run: |
           cd src-tauri/gen/android
           sed -i 's/compileSdk = [0-9]*/compileSdk = 35/' app/build.gradle.kts
           sed -i 's/targetSdk = [0-9]*/targetSdk = 34/' app/build.gradle.kts
-          sed -i 's/minSdk = [0-9]*/minSdk = 21/' app/build.gradle.kts
+          sed -i 's/minSdk = [0-9]*/minSdk = 24/' app/build.gradle.kts
 
       - name: Force landscape orientation
         run: |
