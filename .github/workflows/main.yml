@@ -45,7 +45,7 @@ jobs:
           convert app-icon.png -resize 128x128 src-tauri/icons/128x128.png
           convert app-icon.png -resize 256x256 src-tauri/icons/128x128@2x.png
 
-      - name: Create tauri.conf.json (standard)
+      - name: Create tauri.conf.json
         run: |
           cat > src-tauri/tauri.conf.json << 'EOF'
           {
@@ -76,22 +76,25 @@ jobs:
           sed -i 's/targetSdk = [0-9]*/targetSdk = 34/' app/build.gradle.kts
           sed -i 's/minSdk = [0-9]*/minSdk = 24/' app/build.gradle.kts
 
-      # ---------- ساخت unsigned APK برای هر دو معماری ----------
-      - name: Build unsigned APK for arm64
-        run: PROFILE=release cargo tauri android build --apk --unsigned -- --target aarch64-linux-android
+      # ---------- ساخت APK برای arm64 (بدون --unsigned) ----------
+      - name: Build APK for arm64
+        run: PROFILE=release cargo tauri android build --apk -- --target aarch64-linux-android
 
-      - name: Rename arm64 unsigned APK
+      - name: Copy arm64 APK
         run: |
-          find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" -exec mv {} src-tauri/gen/android/app/build/outputs/apk/flappy-bird-arm64-unsigned.apk \;
+          APK=$(find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" | head -1)
+          cp "$APK" flappy-bird-arm64-unsigned.apk
 
-      - name: Build unsigned APK for armv7
-        run: PROFILE=release cargo tauri android build --apk --unsigned -- --target armv7-linux-androideabi
+      # ---------- ساخت APK برای armv7 ----------
+      - name: Build APK for armv7
+        run: PROFILE=release cargo tauri android build --apk -- --target armv7-linux-androideabi
 
-      - name: Rename armv7 unsigned APK
+      - name: Copy armv7 APK
         run: |
-          find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" ! -name "*arm64*" -exec mv {} src-tauri/gen/android/app/build/outputs/apk/flappy-bird-armv7-unsigned.apk \;
+          APK=$(find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" | head -1)
+          cp "$APK" flappy-bird-armv7-unsigned.apk
 
-      # ---------- ساخت keystore (یکبار مصرف برای این بیلد) ----------
+      # ---------- ساخت keystore ----------
       - name: Generate keystore
         run: |
           keytool -genkey -v -keystore release.keystore \
@@ -103,35 +106,22 @@ jobs:
       # ---------- امضای APKها با apksigner ----------
       - name: Sign arm64 APK
         run: |
-          APK="src-tauri/gen/android/app/build/outputs/apk/flappy-bird-arm64-unsigned.apk"
-          if [ -f "$APK" ]; then
-            $ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | tail -1)/apksigner sign \
-              --ks release.keystore \
-              --ks-pass pass:123456 \
-              --key-pass pass:123456 \
-              --out flappy-bird-arm64-signed.apk \
-              "$APK"
-          else
-            echo "APK not found!"
-            exit 1
-          fi
+          $ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | tail -1)/apksigner sign \
+            --ks release.keystore \
+            --ks-pass pass:123456 \
+            --key-pass pass:123456 \
+            --out flappy-bird-arm64-signed.apk \
+            flappy-bird-arm64-unsigned.apk
 
       - name: Sign armv7 APK
         run: |
-          APK="src-tauri/gen/android/app/build/outputs/apk/flappy-bird-armv7-unsigned.apk"
-          if [ -f "$APK" ]; then
-            $ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | tail -1)/apksigner sign \
-              --ks release.keystore \
-              --ks-pass pass:123456 \
-              --key-pass pass:123456 \
-              --out flappy-bird-armv7-signed.apk \
-              "$APK"
-          else
-            echo "APK not found!"
-            exit 1
-          fi
+          $ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | tail -1)/apksigner sign \
+            --ks release.keystore \
+            --ks-pass pass:123456 \
+            --key-pass pass:123456 \
+            --out flappy-bird-armv7-signed.apk \
+            flappy-bird-armv7-unsigned.apk
 
-      # ---------- آپلود APKهای امضا شده ----------
       - name: Upload signed APKs
         uses: actions/upload-artifact@v4
         with:
@@ -139,7 +129,7 @@ jobs:
           path: |
             flappy-bird-*-signed.apk
 
-      - name: Upload keystore (for future updates)
+      - name: Upload keystore
         uses: actions/upload-artifact@v4
         with:
           name: release-keystore
