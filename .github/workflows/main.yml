@@ -1,85 +1,81 @@
 name: Build Android APK
 
 on:
-workflow_dispatch:
+  workflow_dispatch:
 
 jobs:
   build:
-  runs-on: ubuntu-latest
+    runs-on: ubuntu-latest
 
-  steps:
-    - name: Checkout source
-      uses: actions/checkout@v4
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: 20
-        cache: npm
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
 
-    - name: Install dependencies
-      run: |
-        npm ci || npm install
+      - name: Install dependencies
+        run: |
+          npm ci || npm install
 
-    - name: Setup Rust
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        targets: aarch64-linux-android
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
 
-    - name: Cache Rust
-      uses: Swatinem/rust-cache@v2
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
 
-    - name: Setup Java 17
-      uses: actions/setup-java@v4
-      with:
-        distribution: temurin
-        java-version: 17
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
 
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v3
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-    - name: Install Android NDK
-      run: |
-        sdkmanager "ndk;27.0.12077973"
+      - name: Install Android NDK
+        run: |
+          sdkmanager "ndk;27.0.12077973"
 
-    - name: Install Tauri CLI
-      run: |
-        cargo install tauri-cli --locked
+      - name: Install Tauri CLI
+        run: |
+          cargo install tauri-cli --locked
 
-    - name: Generate Icons (if missing)
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y imagemagick
+      - name: Generate Icons (if missing)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y imagemagick
 
-        mkdir -p src-tauri/icons
+          mkdir -p src-tauri/icons
 
-        if [ ! -f app-icon.png ]; then
-          convert -size 512x512 xc:blue app-icon.png
-        fi
+          if [ ! -f app-icon.png ]; then
+            convert -size 512x512 xc:blue app-icon.png
+          fi
 
-        convert app-icon.png -resize 32x32 src-tauri/icons/32x32.png
-        convert app-icon.png -resize 128x128 src-tauri/icons/128x128.png
-        convert app-icon.png -resize 256x256 src-tauri/icons/128x128@2x.png
+          convert app-icon.png -resize 32x32 src-tauri/icons/32x32.png
+          convert app-icon.png -resize 128x128 src-tauri/icons/128x128.png
+          convert app-icon.png -resize 256x256 src-tauri/icons/128x128@2x.png
 
-    - name: Initialize Android
-      run: |
-        cargo tauri android init
+      - name: Initialize Android
+        run: |
+          cargo tauri android init
 
-    - name: Build Release APK
-      run: |
-        cargo tauri android build --apk
+      - name: Build Release APK
+        run: |
+          cargo tauri android build --apk
 
-    - name: Collect APK
-      run: |
-        mkdir output
+      - name: Collect APK
+        run: |
+          mkdir output
+          find src-tauri/gen/android -type f -name "*.apk" -exec cp {} output/ \;
 
-        find src-tauri/gen/android \
-          -type f \
-          -name "*.apk" \
-          -exec cp {} output/ \;
-
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: flappy-bird-apk
-        path: output/
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: flappy-bird-apk
+          path: output/
