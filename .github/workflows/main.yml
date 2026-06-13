@@ -1,136 +1,87 @@
-name: Build Signed APK (Reliable)
+name: Build Android APK
 
 on:
-  workflow_dispatch:
+workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+build:
+runs-on: ubuntu-latest
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+```
+steps:
+  - name: Checkout source
+    uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: npm install
+  - name: Setup Node.js
+    uses: actions/setup-node@v4
+    with:
+      node-version: 20
+      cache: npm
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android,armv7-linux-androideabi
+  - name: Install dependencies
+    run: |
+      npm ci || npm install
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
+  - name: Setup Rust
+    uses: dtolnay/rust-toolchain@stable
+    with:
+      targets: aarch64-linux-android
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+  - name: Cache Rust
+    uses: Swatinem/rust-cache@v2
 
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli
+  - name: Setup Java 17
+    uses: actions/setup-java@v4
+    with:
+      distribution: temurin
+      java-version: 17
 
-      - name: Install ImageMagick
-        run: sudo apt-get update && sudo apt-get install -y imagemagick
+  - name: Setup Android SDK
+    uses: android-actions/setup-android@v3
 
-      - name: Generate icons
-        run: |
-          mkdir -p src-tauri/icons
-          if [ ! -f "app-icon.png" ]; then convert -size 512x512 xc:blue app-icon.png; fi
-          convert app-icon.png -resize 32x32 src-tauri/icons/32x32.png
-          convert app-icon.png -resize 128x128 src-tauri/icons/128x128.png
-          convert app-icon.png -resize 256x256 src-tauri/icons/128x128@2x.png
+  - name: Install Android NDK
+    run: |
+      sdkmanager "ndk;27.0.12077973"
 
-      - name: Create tauri.conf.json
-        run: |
-          cat > src-tauri/tauri.conf.json << 'EOF'
-          {
-            "$schema": "https://schema.tauri.app/config/2",
-            "productName": "flappy-bird",
-            "version": "0.1.0",
-            "identifier": "com.ashkan.flappy-bird",
-            "build": { "frontendDist": "../src" },
-            "app": {
-              "windows": [{ "title": "Flappy Bird", "width": 800, "height": 600 }],
-              "security": { "csp": "default-src 'self'", "assetProtocol": { "enable": true, "scope": ["**"] } }
-            },
-            "bundle": { "active": true, "targets": "all", "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png"] },
-            "plugins": { "android": { "orientation": "landscape" } }
-          }
-          EOF
+  - name: Install Tauri CLI
+    run: |
+      cargo install tauri-cli --locked
 
-      - name: Remove old Android project
-        run: rm -rf src-tauri/gen/android
+  - name: Generate Icons (if missing)
+    run: |
+      sudo apt-get update
+      sudo apt-get install -y imagemagick
 
-      - name: Initialize Android project
-        run: cargo tauri android init
+      mkdir -p src-tauri/icons
 
-      - name: Fix SDK versions (minSdk = 24)
-        run: |
-          cd src-tauri/gen/android
-          sed -i 's/compileSdk = [0-9]*/compileSdk = 35/' app/build.gradle.kts
-          sed -i 's/targetSdk = [0-9]*/targetSdk = 34/' app/build.gradle.kts
-          sed -i 's/minSdk = [0-9]*/minSdk = 24/' app/build.gradle.kts
+      if [ ! -f app-icon.png ]; then
+        convert -size 512x512 xc:blue app-icon.png
+      fi
 
-      # ---------- ساخت APK برای arm64 (بدون --unsigned) ----------
-      - name: Build APK for arm64
-        run: PROFILE=release cargo tauri android build --apk -- --target aarch64-linux-android
+      convert app-icon.png -resize 32x32 src-tauri/icons/32x32.png
+      convert app-icon.png -resize 128x128 src-tauri/icons/128x128.png
+      convert app-icon.png -resize 256x256 src-tauri/icons/128x128@2x.png
 
-      - name: Copy arm64 APK
-        run: |
-          APK=$(find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" | head -1)
-          cp "$APK" flappy-bird-arm64-unsigned.apk
+  - name: Initialize Android
+    run: |
+      cargo tauri android init
 
-      # ---------- ساخت APK برای armv7 ----------
-      - name: Build APK for armv7
-        run: PROFILE=release cargo tauri android build --apk -- --target armv7-linux-androideabi
+  - name: Build Release APK
+    run: |
+      cargo tauri android build --apk
 
-      - name: Copy armv7 APK
-        run: |
-          APK=$(find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" | head -1)
-          cp "$APK" flappy-bird-armv7-unsigned.apk
+  - name: Collect APK
+    run: |
+      mkdir output
 
-      # ---------- ساخت keystore ----------
-      - name: Generate keystore
-        run: |
-          keytool -genkey -v -keystore release.keystore \
-            -alias flappy \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass 123456 -keypass 123456 \
-            -dname "CN=FlappyBird, OU=FlappyBird, O=FlappyBird, L=City, S=State, C=US"
+      find src-tauri/gen/android \
+        -type f \
+        -name "*.apk" \
+        -exec cp {} output/ \;
 
-      # ---------- امضای APKها با apksigner ----------
-      - name: Sign arm64 APK
-        run: |
-          $ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | tail -1)/apksigner sign \
-            --ks release.keystore \
-            --ks-pass pass:123456 \
-            --key-pass pass:123456 \
-            --out flappy-bird-arm64-signed.apk \
-            flappy-bird-arm64-unsigned.apk
-
-      - name: Sign armv7 APK
-        run: |
-          $ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | tail -1)/apksigner sign \
-            --ks release.keystore \
-            --ks-pass pass:123456 \
-            --key-pass pass:123456 \
-            --out flappy-bird-armv7-signed.apk \
-            flappy-bird-armv7-unsigned.apk
-
-      - name: Upload signed APKs
-        uses: actions/upload-artifact@v4
-        with:
-          name: Flappy-Bird-Signed-APKs
-          path: |
-            flappy-bird-*-signed.apk
-
-      - name: Upload keystore
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-keystore
-          path: release.keystore
+  - name: Upload APK
+    uses: actions/upload-artifact@v4
+    with:
+      name: flappy-bird-apk
+      path: output/
+```
